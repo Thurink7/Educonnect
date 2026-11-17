@@ -58,7 +58,6 @@ export function AppSidebar({ profile, active }: { profile: UserProfile | null; a
       </div>)}
     </nav>
     <div className="sidebar-bottom">
-      <div className="help-card"><div className="help-symbol">?</div><strong>Precisa de ajuda?</strong><p>Fale com a equipe de suporte.</p><a href="mailto:suporte@educonnect.local">Falar com suporte <span>→</span></a></div>
       <button className="nav-item logout" onClick={() => void logout()}><span className="nav-icon">↪</span>Sair desta sessão</button>
     </div>
   </aside>;
