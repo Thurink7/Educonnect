@@ -16,6 +16,7 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   console.error("API request failed", error);
   res.status(500).json({ error: "Não foi possível concluir a solicitação." });
 });
-const port = Number(process.env.PORT ?? 4000);
+const defaultPort = process.env.RENDER === "true" ? 10000 : 4000;
+const port = Number(process.env.PORT ?? defaultPort);
 const host = "0.0.0.0";
 app.listen(port, host, () => console.info(`Educonnect API listening on http://${host}:${port}`));
