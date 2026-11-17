@@ -3,7 +3,9 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-if (!serviceAccountJson) throw new Error("FIREBASE_SERVICE_ACCOUNT is required");
+if (!serviceAccountJson) {
+  throw new Error("FIREBASE_SERVICE_ACCOUNT is required (provide the service account JSON or its Base64-encoded value)");
+}
 
 type ServiceAccountEnv = {
   project_id?: string;
@@ -11,22 +13,32 @@ type ServiceAccountEnv = {
   private_key?: string;
 };
 
-let serviceAccount: ServiceAccountEnv;
+const serviceAccountContent = serviceAccountJson.trim();
+const decodedServiceAccount = serviceAccountContent.startsWith("{")
+  ? serviceAccountContent
+  : Buffer.from(serviceAccountContent, "base64").toString("utf8");
+
+let parsedServiceAccount: ServiceAccountEnv;
 try {
-  serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccountEnv;
+  parsedServiceAccount = JSON.parse(decodedServiceAccount) as ServiceAccountEnv;
 } catch {
   throw new Error("FIREBASE_SERVICE_ACCOUNT must contain valid service account JSON");
 }
 
-if (!serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
+if (!parsedServiceAccount.project_id || !parsedServiceAccount.client_email || !parsedServiceAccount.private_key) {
   throw new Error("FIREBASE_SERVICE_ACCOUNT must include project_id, client_email, and private_key");
 }
 
-const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || serviceAccount.project_id;
+const serviceAccount = {
+  projectId: parsedServiceAccount.project_id,
+  clientEmail: parsedServiceAccount.client_email,
+  privateKey: parsedServiceAccount.private_key.replace(/\\n/g, "\n")
+};
+const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || serviceAccount.projectId;
 const credential = cert({
-  projectId: serviceAccount.project_id,
-  clientEmail: serviceAccount.client_email,
-  privateKey: serviceAccount.private_key.replace(/\\n/g, "\n")
+  projectId: serviceAccount.projectId,
+  clientEmail: serviceAccount.clientEmail,
+  privateKey: serviceAccount.privateKey
 });
 
 const app = getApps()[0] ?? initializeApp({ credential, projectId });
