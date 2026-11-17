@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // O cliente web acessa o Firestore apenas pela API autenticada.
+    // Firebase Admin no servidor aplica as validações de perfil e relacionamento.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

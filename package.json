@@ -1,0 +1,27 @@
+{
+  "name": "educonnect",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:shared": "npm --workspace @educonnect/shared run build",
+    "dev": "npm run build:shared && concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:web": "npm --workspace @educonnect/web run dev",
+    "dev:api": "npm --workspace @educonnect/api run dev",
+    "build": "npm run build --workspace @educonnect/shared && npm run build --workspace @educonnect/api && npm run build --workspace @educonnect/web",
+    "typecheck": "npm run build:shared && npm run typecheck --workspace @educonnect/api && npm run typecheck --workspace @educonnect/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "firebase": "^13.3.0"
+  }
+}
