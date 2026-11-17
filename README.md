@@ -15,7 +15,7 @@ Plataforma de gestão educacional do Projeto Integrador. Este repositório imple
 
 1. Use Node.js 22 ou superior.
 2. Configure um projeto Firebase, habilite o provedor de e-mail/senha no Authentication e crie o banco Firestore.
-3. Copie `.env.example` para `apps/web/.env.local` e `apps/api/.env`. Configure as variáveis `NEXT_PUBLIC_*` apenas na web. Na API, configure `FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS`, `QR_TOKEN_SECRET` (segredo aleatório com pelo menos 32 caracteres) e `WEB_ORIGIN`.
+3. Copie `.env.example` para `apps/web/.env.local` e `apps/api/.env`. Configure as variáveis `NEXT_PUBLIC_*` apenas na web. Na API, configure `FIREBASE_PROJECT_ID`, `FIREBASE_SERVICE_ACCOUNT` (conteúdo JSON da conta de serviço, como objeto em uma variável de ambiente), `QR_TOKEN_SECRET` (segredo aleatório com pelo menos 32 caracteres) e `WEB_ORIGIN`. Em hosts como Render, cole o JSON completo em `FIREBASE_SERVICE_ACCOUNT`; não configure um caminho local em `GOOGLE_APPLICATION_CREDENTIALS`.
 4. Configure uma conta inicial de Coordenação no Firebase Authentication e crie seu documento `users/{uid}` (veja o modelo de dados abaixo). Esse bootstrap inicial é feito no Console; depois a Coordenação pode cadastrar professores e estudantes pela tela de Gestão escolar.
 5. Execute `npm install` e `npm run dev` na raiz. Web: `http://localhost:3000`; API: `http://localhost:4000`.
 
