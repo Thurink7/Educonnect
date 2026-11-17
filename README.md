@@ -23,6 +23,12 @@ O login usa persistência por aba (`session`), permitindo contas diferentes em a
 
 O navegador só libera câmera e localização em HTTPS ou em `localhost`. Não use uma chave privada Firebase no frontend. O arquivo de credenciais Admin deve ficar fora do controle de versão.
 
+### Publicação na Vercel e no Render
+
+- Na Vercel, defina `NEXT_PUBLIC_API_URL` como `https://educonnect-q6a8.onrender.com/api` (o frontend também acrescenta `/api` se o sufixo for omitido).
+- No Render, defina `WEB_ORIGIN` com o domínio HTTPS do frontend na Vercel, sem caminho. Para permitir mais de uma origem, separe os domínios por vírgula; use o domínio estável de produção e, quando necessário, o endereço de preview atual.
+- Depois de mudar variáveis, faça novo deploy dos serviços correspondentes. `NEXT_PUBLIC_API_URL` é incorporada durante o build do frontend.
+
 ## Banco de dados
 
 O modelo, campos, relacionamentos, índices, regras, ciclo de frequência e a transição dos documentos antigos estão detalhados em [docs/firestore-model.md](docs/firestore-model.md). O banco usa `schemaVersion: 1`; datas são Firestore Timestamps e os vínculos de turma são normalizados em `class_memberships`.
