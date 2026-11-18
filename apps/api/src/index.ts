@@ -9,7 +9,7 @@ const app = express();
 app.disable("x-powered-by");
 app.use(helmet());
 app.use(cors({ origin: (process.env.WEB_ORIGIN ?? "http://localhost:3000").split(",").map((value) => value.trim()), credentials: true }));
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: "1mb" }));
 app.use("/api", router);
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (error instanceof HttpError) return res.status(error.status).json({ error: error.message });

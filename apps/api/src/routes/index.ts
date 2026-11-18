@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { requireUser } from "../middleware/auth";
 import { attendanceRouter } from "./attendance";
+import { activitiesRouter } from "./activities";
 import { classesRouter } from "./classes";
 import { dashboardRouter } from "./dashboard";
+import { environmentsRouter } from "./environments";
+import { gradeSubmissionsRouter } from "./grade-submissions";
 import { lessonsRouter } from "./lessons";
 import { protocolsRouter } from "./protocols";
 import { usersRouter } from "./users";
@@ -12,8 +15,11 @@ router.get("/health", (_req, res) => res.json({ status: "ok", service: "educonne
 router.use(requireUser);
 router.get("/me", (req, res) => res.json({ user: req.user }));
 router.use("/classes", classesRouter);
+router.use("/environments", environmentsRouter);
 router.use("/lessons", lessonsRouter);
 router.use("/attendance", attendanceRouter);
+router.use("/activities", activitiesRouter);
+router.use("/grade-submissions", gradeSubmissionsRouter);
 router.use("/dashboard", dashboardRouter);
 router.use("/protocols", protocolsRouter);
 router.use("/users", usersRouter);

@@ -52,12 +52,26 @@ export default function CoordinationPeoplePage() {
   function resetForm() {
     setEditing(null); setName(""); setEmail(""); setPassword(""); setRole("teacher"); setRegistration(""); setGuardian(""); setGuardianEmail(""); setGuardianPhone(""); setClassIds([]); setSubjectMap({});
   }
-  function editTeacher(person: Person) {
-    const assignments = person.teachingAssignments ?? (person.classIds ?? []).map((classId) => ({ classId, subjects: [] }));
-    setEditing(person); setName(person.displayName); setEmail(person.email); setRole("teacher");
-    setClassIds(assignments.map((item) => item.classId));
+  function editPerson(person: Person) {
+    const assignments = (person.teachingAssignments ?? (person.classIds ?? []).map((classId) => ({ classId, subjects: [] }))).filter((item) => classes.some((schoolClass) => schoolClass.id === item.classId));
+    const activeClassIds = (person.classIds ?? []).filter((id) => classes.some((schoolClass) => schoolClass.id === id));
+    setEditing(person); setName(person.displayName); setEmail(person.email); setPassword(""); setRole(person.role as "teacher" | "student");
+    setRegistration(person.registration ?? ""); setGuardian(person.guardian?.name ?? ""); setGuardianEmail(person.guardian?.email ?? ""); setGuardianPhone(person.guardian?.phone ?? "");
+    setClassIds(person.role === "teacher" ? assignments.map((item) => item.classId) : activeClassIds);
     setSubjectMap(Object.fromEntries(assignments.map((item) => [item.classId, item.subjects.length ? item.subjects : (classes.find((schoolClass) => schoolClass.id === item.classId)?.subjects ?? [])])));
     document.getElementById("person-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function deletePerson(person: Person) {
+    if (!user || !window.confirm(`Excluir o acesso de ${person.displayName}? O histórico de frequência será preservado.`)) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(user, `/users/${person.uid}`, { method: "DELETE" });
+      if (editing?.uid === person.uid) resetForm();
+      setNotice(`Acesso de ${person.displayName} excluído.`);
+      await load(user);
+    } catch (e) { setError(e instanceof Error ? e.message : "Não foi possível excluir a pessoa."); }
+    finally { setBusy(false); }
   }
   async function submit(event: FormEvent) {
     event.preventDefault(); if (!user) return;
@@ -65,8 +79,9 @@ export default function CoordinationPeoplePage() {
     const teachingAssignments: Assignment[] = classIds.map((classId) => ({ classId, subjects: subjectMap[classId] ?? [] }));
     try {
       if (editing) {
-        await apiRequest<{ user: Person }>(user, `/users/${editing.uid}`, { method: "PATCH", body: JSON.stringify({ displayName: name, email, teachingAssignments }) });
-        setNotice(`Dados e turmas de ${name} atualizados.`);
+        const body = { displayName: name, email, ...(password ? { password } : {}), ...(role === "teacher" ? { teachingAssignments } : { classIds, registration, guardian: { name: guardian, email: guardianEmail, phone: guardianPhone } }) };
+        await apiRequest<{ user: Person }>(user, `/users/${editing.uid}`, { method: "PATCH", body: JSON.stringify(body) });
+        setNotice(`Dados e vínculos de ${name} atualizados.`);
       } else {
         const body = { displayName: name, email, password, role, ...(role === "teacher" ? { teachingAssignments } : { classIds, registration, guardian: { name: guardian, email: guardianEmail, phone: guardianPhone } }) };
         await apiRequest<{ user: Person }>(user, "/users", { method: "POST", body: JSON.stringify(body) });
@@ -83,14 +98,14 @@ export default function CoordinationPeoplePage() {
     <header className="topbar"><div className="breadcrumbs">Educonnect <span>/</span> Gestão escolar <span>/</span> Pessoas</div><span className="role-chip">{people.length} perfis</span></header>
     <div className="page-content"><div className="greeting-row"><div><p className="eyebrow">GESTÃO ESCOLAR</p><h1>Pessoas</h1><p className="subtitle">Cadastre a equipe e mantenha turmas e disciplinas de cada professor atualizadas.</p></div></div>
       {error && <div className="notice" role="alert"><span>ⓘ</span><div>{error}</div></div>}{notice && <div className="success-note" role="status">✓ {notice}</div>}
-      <section id="person-form" className="coord-section"><div className="section-heading"><div><h2>{editing ? "Editar professor" : "Cadastrar pessoa"}</h2><p>{editing ? "Ajuste os dados, as turmas e as disciplinas atribuídas." : "Escolha o perfil para exibir os campos correspondentes."}</p></div>{editing && <button className="outline-button" type="button" onClick={resetForm}>Cancelar edição</button>}</div>
+      <section id="person-form" className="coord-section"><div className="section-heading"><div><h2>{editing ? `Editar ${role === "teacher" ? "professor" : "estudante"}` : "Cadastrar pessoa"}</h2><p>{editing ? "Ajuste os dados de acesso, informações pessoais e turmas vinculadas." : "Escolha o perfil para exibir os campos correspondentes."}</p></div>{editing && <button className="outline-button" type="button" onClick={resetForm}>Cancelar edição</button>}</div>
         <form className="card management-form" onSubmit={submit}>
           <div className="form-grid">
             <label>Nome completo<input required minLength={2} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome e sobrenome" /></label>
             <label>E-mail de acesso<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pessoa@escola.com.br" /></label>
-            {!editing && <label>Senha provisória<input required type="password" minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mínimo 10 caracteres" /><small>Compartilhe a senha diretamente com a pessoa.</small></label>}
+            <label>{editing ? "Nova senha (opcional)" : "Senha provisória"}<input required={!editing} type="password" minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={editing ? "Deixe em branco para manter" : "Mínimo 10 caracteres"} /><small>{editing ? "Preencha apenas se for trocar a senha de acesso." : "Compartilhe a senha diretamente com a pessoa."}</small></label>
             {!editing && <label>Perfil<select value={role} onChange={(e) => { setRole(e.target.value as "teacher" | "student"); setClassIds([]); setSubjectMap({}); }}><option value="teacher">Professor</option><option value="student">Estudante</option></select></label>}
-            {role === "student" && !editing && <>
+            {role === "student" && <>
               <label>Matrícula<input required value={registration} onChange={(e) => setRegistration(e.target.value)} placeholder="Número de matrícula" /></label>
               <label>Nome do responsável<input required value={guardian} onChange={(e) => setGuardian(e.target.value)} placeholder="Nome completo" /></label>
               <label>E-mail do responsável<input type="email" value={guardianEmail} onChange={(e) => setGuardianEmail(e.target.value)} placeholder="Opcional" /></label>
@@ -109,8 +124,8 @@ export default function CoordinationPeoplePage() {
           <div className="form-actions"><p>{assignmentNeedsSubject ? "Escolha ao menos uma disciplina em cada turma selecionada." : role === "teacher" ? "As atribuições podem ser alteradas depois, sem recriar o acesso do professor." : "Você poderá ajustar os vínculos posteriormente."}</p><button className="primary-link" disabled={busy || loading || assignmentNeedsSubject}>{busy ? "Salvando..." : editing ? "Salvar alterações" : "Criar perfil"}</button></div>
         </form>
       </section>
-      <section className="coord-section"><div className="section-heading"><div><h2>Perfis cadastrados</h2><p>Selecione um professor para editar as turmas e disciplinas.</p></div></div>
-        {loading ? <div className="card loading-card"><span className="spinner blue-spinner" />Carregando perfis...</div> : visiblePeople.length ? <div className="people-list card">{visiblePeople.map((person) => <article className="person-row" key={person.uid}><span className={`person-avatar ${person.role}`}>{person.displayName.slice(0, 1).toUpperCase()}</span><div className="person-main"><strong>{person.displayName}</strong><small>{person.role === "teacher" ? "Professor" : "Estudante"} · {person.email}</small>{person.role === "teacher" && <small>{(person.teachingAssignments ?? []).map((item) => { const schoolClass = classes.find((entry) => entry.id === item.classId); return `${schoolClass?.name ?? "Turma"}: ${item.subjects.join(", ")}`; }).join(" · ") || "Sem turma atribuída"}</small>}{person.role === "student" && <small>Matrícula {person.registration ?? "não informada"}</small>}</div>{person.role === "teacher" && <button className="outline-button person-edit" type="button" onClick={() => editTeacher(person)}>Editar professor</button>}</article>)}</div> : <div className="empty-inline card">Ainda não há pessoas cadastradas.</div>}
+      <section className="coord-section"><div className="section-heading"><div><h2>Perfis cadastrados</h2><p>Edite os dados e vínculos de professores e estudantes ou remova acessos.</p></div></div>
+        {loading ? <div className="card loading-card"><span className="spinner blue-spinner" />Carregando perfis...</div> : visiblePeople.length ? <div className="people-list card">{visiblePeople.map((person) => <article className="person-row" key={person.uid}><span className={`person-avatar ${person.role}`}>{person.displayName.slice(0, 1).toUpperCase()}</span><div className="person-main"><strong>{person.displayName}</strong><small>{person.role === "teacher" ? "Professor" : "Estudante"} · {person.email}</small>{person.role === "teacher" && <small>{(person.teachingAssignments ?? []).map((item) => { const schoolClass = classes.find((entry) => entry.id === item.classId); return `${schoolClass?.name ?? "Turma"}: ${item.subjects.join(", ")}`; }).join(" · ") || "Sem turma atribuída"}</small>}{person.role === "student" && <small>Matrícula {person.registration ?? "não informada"} · {(person.classIds ?? []).map((id) => classes.find((entry) => entry.id === id)?.name ?? "Turma").join(", ") || "Sem turma"}</small>}</div><div className="person-actions"><button className="outline-button person-edit" type="button" onClick={() => editPerson(person)}>Editar</button><button className="outline-button danger-outline" type="button" disabled={busy} onClick={() => void deletePerson(person)}>Excluir</button></div></article>)}</div> : <div className="empty-inline card">Ainda não há pessoas cadastradas.</div>}
       </section>
       <footer className="app-footer"><span>© 2026 Educonnect</span><span>Gestão escolar, mais próxima.</span></footer>
     </div>

@@ -11,7 +11,7 @@ import { createAttendanceToken } from "../services/qr";
 import { routeParam, serializeData } from "../services/serialize";
 
 export const lessonsRouter = Router();
-const lessonBody = z.object({ classId: z.string().min(1), subject: z.string().trim().min(1).max(100), mode: z.enum(["in-person", "remote"]).default("in-person"), startsAt: z.string().datetime().optional() });
+const lessonBody = z.object({ classId: z.string().min(1), subject: z.string().trim().min(1).max(100), mode: z.enum(["in-person", "remote"]).default("in-person"), startsAt: z.string().datetime().optional(), locationMode: z.enum(["current", "environment"]), environmentId: z.string().optional(), location: z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), radiusMeters: z.number().min(20).max(1000) }).optional() });
 
 function renderLesson(id: string, data: DocumentData) {
   return { id, ...serializeData(data) };
@@ -24,15 +24,24 @@ lessonsRouter.post("/", allowRoles("teacher", "coordination"), async (req, res, 
     const { classId, subject, mode } = parsed.data;
     if (mode === "remote") return res.status(400).json({ error: "A chamada por QR está disponível para aulas presenciais. Para aulas remotas, use a chamada manual." });
     const schoolClass = await loadSchoolClass(classId, req.user!);
-    if (!schoolClass) return res.status(404).json({ error: "Turma não encontrada neste colégio." });
+    if (!schoolClass || schoolClass.status === "archived") return res.status(404).json({ error: "Turma não encontrada ou arquivada neste colégio." });
     if (req.user!.role === "teacher" && !await isClassMember(classId, req.user!, "teacher")) return res.status(403).json({ error: "Turma não vinculada a este professor." });
     if (!schoolClass.subjects.includes(subject)) return res.status(400).json({ error: "A disciplina não está cadastrada nesta turma." });
+    let lessonLocation = parsed.data.location;
+    if (parsed.data.locationMode === "environment") {
+      if (!parsed.data.environmentId) return res.status(400).json({ error: "Selecione um ambiente para usar sua localização predefinida." });
+      const environment = await db.collection("environments").doc(parsed.data.environmentId).get();
+      const environmentData = environment.data();
+      if (!environment.exists || environmentData?.archivedAt || environmentData?.schoolId !== req.user!.schoolId || environmentData?.classId !== classId) return res.status(400).json({ error: "O ambiente selecionado não está ativo nesta turma." });
+      lessonLocation = environmentData.location;
+    }
+    if (!lessonLocation) return res.status(400).json({ error: "Obtenha sua localização atual ou selecione um ambiente cadastrado para esta turma." });
     const existing = await db.collection("lessons").where("classId", "==", classId).where("status", "==", "active").limit(1).get();
     if (!existing.empty) return res.status(409).json({ error: "Esta turma já possui uma aula em andamento.", lessonId: existing.docs[0].id });
     const ref = db.collection("lessons").doc();
     const { token, payload } = createAttendanceToken(ref.id, classId, req.user!.schoolId);
     const now = Timestamp.now();
-    const data = { schoolId: req.user!.schoolId, schemaVersion: 1, classId, subject, mode, teacherId: req.user!.uid, startsAt: parsed.data.startsAt ? Timestamp.fromDate(new Date(parsed.data.startsAt)) : now, status: "active", qrNonce: payload.nonce, qrExpiresAt: Timestamp.fromMillis(payload.expiresAt), presentCount: 0, createdAt: now, updatedAt: now };
+    const data = { schoolId: req.user!.schoolId, schemaVersion: 1, classId, subject, mode, location: lessonLocation, locationMode: parsed.data.locationMode, ...(parsed.data.environmentId ? { environmentId: parsed.data.environmentId } : {}), teacherId: req.user!.uid, startsAt: parsed.data.startsAt ? Timestamp.fromDate(new Date(parsed.data.startsAt)) : now, status: "active", qrNonce: payload.nonce, qrExpiresAt: Timestamp.fromMillis(payload.expiresAt), presentCount: 0, createdAt: now, updatedAt: now };
     await ref.set(data);
     const qrDataUrl = await QRCode.toDataURL(token, { errorCorrectionLevel: "M", margin: 2, width: 280 });
     res.status(201).json({ lesson: renderLesson(ref.id, data), qrDataUrl, expiresAt: new Date(payload.expiresAt).toISOString() });

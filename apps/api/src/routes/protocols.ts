@@ -26,13 +26,15 @@ protocolsRouter.post("/", allowRoles("coordination"), async (req, res, next) => 
     if (!parsed.success) return res.status(400).json({ error: "Preencha turma, estudante, título e descrição do protocolo." });
     const { classId, studentId, title, description, dueAt } = parsed.data;
     const schoolClass = await loadSchoolClass(classId, req.user!);
-    if (!schoolClass) return res.status(404).json({ error: "Turma não encontrada." });
+    if (!schoolClass || schoolClass.status === "archived") return res.status(404).json({ error: "Turma não encontrada ou arquivada." });
     const [member, student] = await Promise.all([db.collection("class_memberships").doc(`${classId}_${studentId}`).get(), db.collection("users").doc(studentId).get()]);
-    if ((!member.exists || member.data()?.role !== "student") && !schoolClass.studentIds?.includes(studentId)) return res.status(404).json({ error: "Estudante não está vinculado à turma." });
-    if (!student.exists || student.data()?.schoolId !== req.user!.schoolId) return res.status(404).json({ error: "Estudante não encontrado neste colégio." });
+    const activeMembership = member.exists && member.data()?.role === "student" && member.data()?.userId === studentId && (member.data()?.schoolId ?? "default") === req.user!.schoolId;
+    const legacyMembership = !member.exists && schoolClass.studentIds?.includes(studentId);
+    if (!activeMembership && !legacyMembership) return res.status(404).json({ error: "Estudante não está vinculado à turma." });
+    if (!student.exists || student.data()?.schoolId !== req.user!.schoolId || student.data()?.role !== "student") return res.status(404).json({ error: "Estudante não encontrado neste colégio." });
     const now = Timestamp.now();
     const ref = db.collection("protocols").doc();
-    const data = { schoolId: req.user!.schoolId, schemaVersion: 1, classId, studentId, studentName: student.data()?.displayName ?? "Estudante", className: schoolClass.name, title, description, dueAt: dueAt ? Timestamp.fromDate(new Date(dueAt)) : null, status: "open", createdBy: req.user!.uid, createdAt: now, updatedAt: now };
+    const data = { schoolId: req.user!.schoolId, schemaVersion: 1, classId, studentId: student.id, studentName: student.data()?.displayName ?? "Estudante", className: schoolClass.name, title, description, dueAt: dueAt ? Timestamp.fromDate(new Date(dueAt)) : null, status: "open", createdBy: req.user!.uid, createdAt: now, updatedAt: now };
     await ref.set(data);
     res.status(201).json({ protocol: { id: ref.id, ...serializeData(data) } });
   } catch (error) { next(error); }

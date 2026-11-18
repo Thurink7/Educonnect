@@ -55,7 +55,7 @@ O Firebase Admin ignora as regras Firestore; a API valida token, colégio, perfi
 
 - Professor inicia uma chamada presencial e escolhe turma e disciplina.
 - O QR é assinado no servidor e cada token vale 10 segundos. Na renovação, tokens já exibidos continuam válidos até o próprio vencimento.
-- O estudante lê o QR com a câmera e a API confere turma, chamada ativa e geocerca da sala. A API não armazena a coordenada exata do estudante.
+- O professor escolhe a localização atual no momento da aula ou usa uma localização predefinida em Ambientes. O estudante lê o QR com a câmera; a API confere turma, chamada ativa e geocerca da própria aula sem armazenar a coordenada exata do estudante.
 - A chamada registra presenças em transações Firestore, impede duplicidade, atualiza a lista a cada 5 segundos e permite correção manual com histórico de auditoria.
 - Ao encerrar, estudantes sem registro ficam com falta. Falta justificada pode ser marcada manualmente durante a chamada.
 
@@ -65,7 +65,9 @@ O Firebase Admin ignora as regras Firestore; a API valida token, colégio, perfi
 - Tela da turma com lista, busca, frequência individual, faltas e chamada em andamento.
 - Monitoramento de aulas abertas, atualizado a cada 10 segundos.
 - Alertas da coordenação para estudantes com frequência abaixo de 75% e pelo menos cinco aulas registradas nos últimos 30 dias.
-- Cadastro de turmas com disciplinas e geocerca; criação de perfis de professor/estudante no Firebase Authentication e vínculo com turmas.
+- Cadastro de turmas e disciplinas; tela Ambientes com salas, horários, turma vinculada e localização predefinida.
+- Cadastro e edição de perfis de professores/estudantes, senha de acesso e vínculos de turma; exclusão de conta preservando o histórico de frequência.
+- Edição de turmas e localização de referência; exclusão arquiva a turma, preservando aulas, frequências e protocolos históricos.
 - Protocolos pedagógicos ficam disponíveis na conta do estudante; o envio de e-mail/notificação externa ainda não está integrado.
 - Estudante consulta histórico de frequência e seus protocolos.
 
@@ -75,12 +77,18 @@ Os agregados são calculados a partir dos registros de frequência, sem um siste
 
 - `GET /api/health`, `GET /api/me`, `GET /api/dashboard/summary`
 - `GET /api/classes`, `POST /api/classes`, `POST /api/classes/:classId/members`
+- `PATCH /api/classes/:classId`, `DELETE /api/classes/:classId` (arquiva)
+- `GET /api/environments`, `POST /api/environments`, `PATCH /api/environments/:environmentId`, `DELETE /api/environments/:environmentId`
 - `GET /api/classes/:classId/overview`, `GET /api/classes/:classId/roster`
 - `POST /api/lessons`, `POST /api/lessons/:lessonId/qr`, `GET /api/lessons/:lessonId/roster`
 - `PATCH /api/lessons/:lessonId/attendance/:studentId`, `POST /api/lessons/:lessonId/close`
 - `POST /api/attendance/scan`, `GET /api/attendance/me`
 - `GET /api/dashboard/monitoring`, `GET /api/dashboard/alerts`
-- `GET /api/users`, `POST /api/users`, `GET /api/protocols`, `POST /api/protocols`
+- `GET /api/users`, `POST /api/users`, `PATCH /api/users/:userId`, `DELETE /api/users/:userId`, `GET /api/protocols`, `POST /api/protocols`
+- `GET/POST/PATCH/DELETE /api/activities`, `POST /api/activities/:activityId/complete`
+- `GET/POST/PATCH /api/grade-submissions`, `POST /api/grade-submissions/:submissionId/submit`, `POST /api/grade-submissions/:submissionId/review`, `GET /api/grade-submissions/report-card`
+
+O módulo acadêmico disponibiliza o boletim publicado do aluno, a agenda com registro de entrega, editor de notas do professor (digitação ou importação CSV/XLSX com prévia) e fila de aprovação da Coordenação. O lote só entra no boletim depois da aprovação; a devolução exige feedback. Os modelos TypeScript ficam em `packages/shared` e as coleções estão descritas em `docs/firestore-model.md`.
 
 ## Fora destas sprints
 

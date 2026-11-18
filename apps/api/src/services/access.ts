@@ -10,6 +10,7 @@ export async function loadSchoolClass(classId: string, profile: UserProfile) {
 }
 
 export async function isClassMember(classId: string, profile: UserProfile, role?: MemberRole) {
+  if ((!role || role === "teacher") && profile.role === "teacher" && profile.teachingAssignments?.some((item) => item.classId === classId)) return true;
   const membership = await db.collection("class_memberships").doc(`${classId}_${profile.uid}`).get();
   if (membership.exists) return !role || membership.data()?.role === role;
   if (profile.classIds?.includes(classId)) return !role || role === profile.role;
@@ -32,6 +33,7 @@ export async function getUserClassIds(profile: UserProfile) {
   const memberships = await db.collection("class_memberships").where("userId", "==", profile.uid).get();
   const ids = new Set(memberships.docs.filter((doc) => doc.data().schoolId === profile.schoolId).map((doc) => String(doc.data().classId)));
   for (const id of profile.classIds ?? []) ids.add(id);
+  for (const assignment of profile.teachingAssignments ?? []) ids.add(assignment.classId);
   return [...ids];
 }
 

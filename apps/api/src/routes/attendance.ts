@@ -42,8 +42,8 @@ attendanceRouter.post("/scan", allowRoles("student"), async (req, res, next) => 
       if ((schoolClass.schoolId ?? "default") !== req.user!.schoolId || lesson.schoolId !== req.user!.schoolId) throw new HttpError(403, "Esta aula pertence a outro colégio.");
       const legacyMember = !membershipSnapshot.exists && req.user!.classIds?.includes(payload.classId);
       if ((!membershipSnapshot.exists && !legacyMember) || (membershipSnapshot.exists && membershipSnapshot.data()?.role !== "student")) throw new HttpError(403, "Esta aula não está vinculada à sua turma.");
-      const room = schoolClass.location;
-      if (!room || typeof room.latitude !== "number" || typeof room.longitude !== "number" || typeof room.radiusMeters !== "number") throw new HttpError(409, "A localização desta sala ainda não foi configurada pela coordenação.");
+      const room = lesson.location ?? schoolClass.location;
+      if (!room || typeof room.latitude !== "number" || typeof room.longitude !== "number" || typeof room.radiusMeters !== "number") throw new HttpError(409, "O professor ainda não definiu a localização para esta aula.");
       const distance = distanceInMeters(room, parsed.data.location);
       const tolerance = Math.min(10, parsed.data.location.accuracyMeters);
       if (distance > room.radiusMeters + tolerance) throw new HttpError(403, "Você está fora da área permitida para registrar presença. Aproxime-se da sala e tente novamente.");

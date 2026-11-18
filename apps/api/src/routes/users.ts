@@ -19,7 +19,7 @@ async function validateTeacherAssignments(assignments: Array<z.infer<typeof assi
   for (let index = 0; index < assignments.length; index += 1) {
     const assignment = assignments[index];
     const doc = docs[index];
-    if (!doc.exists || (doc.data()?.schoolId ?? "default") !== schoolId) return "Uma das turmas selecionadas não pertence a este colégio.";
+    if (!doc.exists || (doc.data()?.schoolId ?? "default") !== schoolId || doc.data()?.status === "archived") return "Uma das turmas selecionadas não pertence a este colégio ou está arquivada.";
     const subjects = doc.data()?.subjects as string[] | undefined;
     if (!subjects?.length || assignment.subjects.some((subject) => !subjects.includes(subject))) return `Revise as disciplinas selecionadas para ${doc.data()?.name ?? "a turma"}.`;
   }
@@ -64,7 +64,7 @@ usersRouter.post("/", async (req, res, next) => {
       if (assignmentError) return res.status(400).json({ error: assignmentError });
     } else if (classIds.length) {
       const classes = await db.getAll(...classIds.map((id) => db.collection("classes").doc(id)));
-      if (new Set(classIds).size !== classIds.length || classes.some((doc) => !doc.exists || (doc.data()?.schoolId ?? "default") !== req.user!.schoolId)) return res.status(400).json({ error: "Revise as turmas selecionadas para o estudante." });
+      if (new Set(classIds).size !== classIds.length || classes.some((doc) => !doc.exists || (doc.data()?.schoolId ?? "default") !== req.user!.schoolId || doc.data()?.status === "archived")) return res.status(400).json({ error: "Revise as turmas selecionadas para o estudante." });
     }
 
     const account = await auth.createUser({ email: fields.email, password, displayName: fields.displayName, emailVerified: false, disabled: false });
@@ -94,23 +94,37 @@ usersRouter.post("/", async (req, res, next) => {
   }
 });
 
-const editTeacherSchema = z.object({
+const editUserSchema = z.object({
   displayName: z.string().trim().min(2).max(120),
   email: z.string().trim().email().max(180),
-  teachingAssignments: z.array(assignmentSchema).max(50)
+  password: z.string().min(10).max(128).optional(),
+  teachingAssignments: z.array(assignmentSchema).max(50).optional(),
+  classIds: z.array(z.string().min(1)).max(50).optional(),
+  registration: z.string().trim().min(1).max(40).optional(),
+  guardian: z.object({ name: z.string().trim().min(2).max(120), email: z.string().trim().email().optional().or(z.literal("")), phone: z.string().trim().max(30).optional() }).optional()
 });
 
 usersRouter.patch("/:userId", async (req, res, next) => {
   try {
     const userId = routeParam(req.params.userId);
-    const parsed = editTeacherSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Revise os dados do professor e as disciplinas por turma." });
+    const parsed = editUserSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Revise os dados do perfil e os vínculos de turma." });
     const profileRef = db.collection("users").doc(userId);
     const profileSnapshot = await profileRef.get();
     const oldProfile = profileSnapshot.data();
-    if (!profileSnapshot.exists || oldProfile?.schoolId !== req.user!.schoolId || oldProfile?.role !== "teacher") return res.status(404).json({ error: "Professor não encontrado neste colégio." });
-    const assignmentError = await validateTeacherAssignments(parsed.data.teachingAssignments, req.user!.schoolId);
-    if (assignmentError) return res.status(400).json({ error: assignmentError });
+    if (!profileSnapshot.exists || oldProfile?.schoolId !== req.user!.schoolId || !["teacher", "student"].includes(String(oldProfile?.role))) return res.status(404).json({ error: "Pessoa não encontrada neste colégio." });
+    const role = oldProfile.role as "teacher" | "student";
+    const teachingAssignments: Array<z.infer<typeof assignmentSchema>> = role === "teacher" ? parsed.data.teachingAssignments ?? (oldProfile.teachingAssignments as Array<z.infer<typeof assignmentSchema>> | undefined) ?? [] : [];
+    const classIds: string[] = role === "student" ? parsed.data.classIds ?? (oldProfile.classIds as string[] | undefined) ?? [] : teachingAssignments.map((item) => item.classId);
+    if (role === "teacher") {
+      const assignmentError = await validateTeacherAssignments(teachingAssignments, req.user!.schoolId);
+      if (assignmentError) return res.status(400).json({ error: assignmentError });
+    } else {
+      const classes = classIds.length ? await db.getAll(...classIds.map((id) => db.collection("classes").doc(id))) : [];
+      if (new Set(classIds).size !== classIds.length || classes.some((doc) => !doc.exists || (doc.data()?.schoolId ?? "default") !== req.user!.schoolId || doc.data()?.status === "archived")) return res.status(400).json({ error: "Revise as turmas selecionadas para o estudante." });
+      if (!(parsed.data.registration ?? oldProfile.registration)) return res.status(400).json({ error: "Matrícula obrigatória para estudante." });
+      if (!(parsed.data.guardian?.name ?? oldProfile.guardian?.name)) return res.status(400).json({ error: "Nome do responsável obrigatório para estudante." });
+    }
 
     const account = await auth.getUser(userId);
     if (parsed.data.email !== account.email) {
@@ -121,27 +135,59 @@ usersRouter.patch("/:userId", async (req, res, next) => {
         if ((error as { code?: string }).code !== "auth/user-not-found") throw error;
       }
     }
-    await auth.updateUser(userId, { email: parsed.data.email, displayName: parsed.data.displayName });
+    await auth.updateUser(userId, { email: parsed.data.email, displayName: parsed.data.displayName, ...(parsed.data.password ? { password: parsed.data.password } : {}) });
 
     const existingMemberships = await db.collection("class_memberships").where("userId", "==", userId).get();
-    const assignmentsById = new Map(parsed.data.teachingAssignments.map((item) => [item.classId, item]));
-    const nextClassIds = [...assignmentsById.keys()];
+    const nextClassIds = [...new Set(classIds)];
     const now = Timestamp.now();
     const batch = db.batch();
-    batch.update(profileRef, {
-      displayName: parsed.data.displayName, email: parsed.data.email, classIds: nextClassIds,
-      teachingAssignments: parsed.data.teachingAssignments, updatedAt: now
-    });
-    for (const membership of existingMemberships.docs) {
-      if (membership.data().role === "teacher" && !assignmentsById.has(String(membership.data().classId))) batch.delete(membership.ref);
+    const profileUpdate: Record<string, unknown> = { displayName: parsed.data.displayName, email: parsed.data.email, classIds: nextClassIds, updatedAt: now };
+    if (role === "teacher") profileUpdate.teachingAssignments = teachingAssignments;
+    if (role === "student") {
+      profileUpdate.registration = parsed.data.registration ?? oldProfile.registration;
+      const guardian = parsed.data.guardian ?? oldProfile.guardian ?? {};
+      profileUpdate.guardian = { name: guardian.name, ...(guardian.email ? { email: guardian.email } : {}), ...(guardian.phone ? { phone: guardian.phone } : {}) };
     }
+    batch.update(profileRef, profileUpdate);
+    const staleMemberships = existingMemberships.docs.filter((membership) => membership.data().schoolId === req.user!.schoolId && membership.data().role === role && !nextClassIds.includes(String(membership.data().classId)));
     for (const classId of nextClassIds) {
       const membership = db.collection("class_memberships").doc(`${classId}_${userId}`);
-      batch.set(membership, { classId, schoolId: req.user!.schoolId, schemaVersion: 1, userId, role: "teacher", updatedAt: now, updatedBy: req.user!.uid }, { merge: true });
+      batch.set(membership, { classId, schoolId: req.user!.schoolId, schemaVersion: 1, userId, role, updatedAt: now, updatedBy: req.user!.uid }, { merge: true });
     }
-    await batch.commit();
-    const result = { uid: userId, ...parsed.data, role: "teacher", schoolId: req.user!.schoolId, classIds: nextClassIds };
+    if (staleMemberships.length + nextClassIds.length > 450) {
+      await batch.commit();
+      for (let offset = 0; offset < staleMemberships.length; offset += 450) {
+        const cleanupBatch = db.batch();
+        for (const membership of staleMemberships.slice(offset, offset + 450)) cleanupBatch.delete(membership.ref);
+        await cleanupBatch.commit();
+      }
+    } else {
+      for (const membership of staleMemberships) batch.delete(membership.ref);
+      await batch.commit();
+    }
+    const result = { uid: userId, displayName: parsed.data.displayName, email: parsed.data.email, role, schoolId: req.user!.schoolId, classIds: nextClassIds, ...(role === "teacher" ? { teachingAssignments } : { registration: profileUpdate.registration, guardian: profileUpdate.guardian }) };
     res.json({ user: result });
+  } catch (error) { next(error); }
+});
+
+usersRouter.delete("/:userId", async (req, res, next) => {
+  try {
+    const userId = routeParam(req.params.userId);
+    if (userId === req.user!.uid) return res.status(400).json({ error: "A coordenação não pode excluir a própria conta por esta tela." });
+    const profileRef = db.collection("users").doc(userId);
+    const profile = await profileRef.get();
+    if (!profile.exists || profile.data()?.schoolId !== req.user!.schoolId || !["teacher", "student"].includes(String(profile.data()?.role))) return res.status(404).json({ error: "Pessoa não encontrada neste colégio." });
+    await auth.updateUser(userId, { disabled: true });
+    const memberships = await db.collection("class_memberships").where("userId", "==", userId).get();
+    const schoolMemberships = memberships.docs.filter((doc) => (doc.data().schoolId ?? "default") === req.user!.schoolId);
+    for (let offset = 0; offset < schoolMemberships.length; offset += 450) {
+      const batch = db.batch();
+      for (const membership of schoolMemberships.slice(offset, offset + 450)) batch.delete(membership.ref);
+      await batch.commit();
+    }
+    await profileRef.delete();
+    await auth.deleteUser(userId);
+    res.json({ deleted: true });
   } catch (error) { next(error); }
 });
 

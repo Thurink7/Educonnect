@@ -19,14 +19,17 @@ classesRouter.get("/", allowRoles("teacher", "coordination"), async (req, res, n
           const refs = ids.slice(0, 100).map((id) => db.collection("classes").doc(id));
           return { docs: await db.getAll(...refs) };
         })();
-    const classes = (snapshot?.docs ?? []).filter((doc) => doc.exists && (doc.data()?.schoolId ?? "default") === profile.schoolId).map((doc) => serializeClass(doc.id, doc.data()!));
+    const classes = (snapshot?.docs ?? []).filter((doc) => doc.exists && (doc.data()?.schoolId ?? "default") === profile.schoolId && doc.data()?.status !== "archived").map((doc) => {
+      const schoolClass = serializeClass(doc.id, doc.data()!);
+      return profile.role === "coordination" ? { ...schoolClass, location: doc.data()?.location } : schoolClass;
+    });
     res.json({ classes });
   } catch (error) { next(error); }
 });
 
 const locationSchema = z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), radiusMeters: z.number().min(20).max(1000) });
 const scheduleSchema = z.object({ weekday: z.number().int().min(0).max(6), startsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), endsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), subject: z.string().min(1).max(100), teacherId: z.string().optional() });
-const createClassSchema = z.object({ name: z.string().trim().min(2).max(100), shift: z.string().trim().min(1).max(40), subjects: z.array(z.string().trim().min(1).max(100)).min(1).max(20), location: locationSchema, schedule: z.array(scheduleSchema).max(100).default([]) });
+const createClassSchema = z.object({ name: z.string().trim().min(2).max(100), shift: z.string().trim().min(1).max(40), subjects: z.array(z.string().trim().min(1).max(100)).min(1).max(20), location: locationSchema.nullable().optional(), schedule: z.array(scheduleSchema).max(100).default([]) });
 
 classesRouter.post("/", allowRoles("coordination"), async (req, res, next) => {
   try {
@@ -34,7 +37,7 @@ classesRouter.post("/", allowRoles("coordination"), async (req, res, next) => {
     if (!parsed.success) return res.status(400).json({ error: "Revise o nome, turno e disciplinas da turma." });
     const now = Timestamp.now();
     const ref = db.collection("classes").doc();
-    const data = { ...parsed.data, schoolId: req.user!.schoolId, schemaVersion: 1, createdBy: req.user!.uid, createdAt: now, updatedAt: now };
+    const data = { ...parsed.data, status: "active", schoolId: req.user!.schoolId, schemaVersion: 1, createdBy: req.user!.uid, createdAt: now, updatedAt: now };
     await ref.set(data);
     res.status(201).json({ schoolClass: serializeClass(ref.id, data) });
   } catch (error) { next(error); }
@@ -48,7 +51,7 @@ classesRouter.post("/:classId/members", allowRoles("coordination"), async (req, 
     if (!parsed.success) return res.status(400).json({ error: "Informe o identificador e o perfil do usuário." });
     const { userId, role } = parsed.data;
     const schoolClass = await loadSchoolClass(classId, req.user!);
-    if (!schoolClass) return res.status(404).json({ error: "Turma não encontrada." });
+    if (!schoolClass || schoolClass.status === "archived") return res.status(404).json({ error: "Turma não encontrada ou arquivada." });
     const userRef = db.collection("users").doc(userId);
     const membershipRef = db.collection("class_memberships").doc(`${classId}_${userId}`);
     const [userDoc, existing] = await Promise.all([userRef.get(), membershipRef.get()]);
@@ -128,9 +131,32 @@ classesRouter.patch("/:classId", allowRoles("coordination"), async (req, res, ne
     const parsed = createClassSchema.partial().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Os dados da turma são inválidos." });
     const schoolClass = await loadSchoolClass(classId, req.user!);
-    if (!schoolClass) return res.status(404).json({ error: "Turma não encontrada." });
+    if (!schoolClass || schoolClass.status === "archived") return res.status(404).json({ error: "Turma não encontrada ou arquivada." });
     await db.collection("classes").doc(classId).update({ ...parsed.data, updatedAt: Timestamp.now() });
     const updated = await loadSchoolClass(classId, req.user!);
     res.json({ schoolClass: updated ? serializeClass(updated.id, updated as unknown as Record<string, unknown>) : null });
+  } catch (error) { next(error); }
+});
+
+classesRouter.delete("/:classId", allowRoles("coordination"), async (req, res, next) => {
+  try {
+    const classId = routeParam(req.params.classId);
+    const schoolClass = await loadSchoolClass(classId, req.user!);
+    if (!schoolClass || schoolClass.status === "archived") return res.status(404).json({ error: "Turma não encontrada ou já arquivada." });
+    const activeLessons = await db.collection("lessons").where("classId", "==", classId).where("status", "==", "active").limit(1).get();
+    if (!activeLessons.empty) return res.status(409).json({ error: "Encerre a chamada em andamento antes de excluir esta turma." });
+    const now = Timestamp.now();
+    const batch = db.batch();
+    batch.update(db.collection("classes").doc(classId), { status: "archived", archivedAt: now, archivedBy: req.user!.uid, updatedAt: now });
+    const environmentSnapshot = await db.collection("environments").where("classId", "==", classId).get();
+    const relatedEnvironments = environmentSnapshot.docs.filter((environment) => (environment.data().schoolId ?? "default") === req.user!.schoolId);
+    for (const environment of relatedEnvironments.slice(0, 399)) batch.update(environment.ref, { archivedAt: now, archivedBy: req.user!.uid, updatedAt: now });
+    await batch.commit();
+    for (let offset = 399; offset < relatedEnvironments.length; offset += 400) {
+      const environmentBatch = db.batch();
+      for (const environment of relatedEnvironments.slice(offset, offset + 400)) environmentBatch.update(environment.ref, { archivedAt: now, archivedBy: req.user!.uid, updatedAt: now });
+      await environmentBatch.commit();
+    }
+    res.json({ archived: true, classId });
   } catch (error) { next(error); }
 });

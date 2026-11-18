@@ -13,6 +13,8 @@ const studentLinks: Array<{ group: string; links: MenuLink[] }> = [
   { group: "MINHA ROTINA", links: [
     { label: "Registrar presença", href: "/scan", icon: "◉", active: "scan" },
     { label: "Meu histórico", href: "/attendance", icon: "◷", active: "attendance" },
+    { label: "Boletim", href: "/aluno/notas", icon: "▤", active: "student-grades" },
+    { label: "Atividades", href: "/aluno/atividades", icon: "▣", active: "student-activities" },
     { label: "Protocolos", href: "/protocols", icon: "▤", active: "protocols" }
   ] }
 ];
@@ -20,7 +22,9 @@ const teacherLinks: Array<{ group: string; links: MenuLink[] }> = [
   { group: "INÍCIO", links: [{ label: "Visão geral", href: "/dashboard", icon: "⌂", active: "overview" }] },
   { group: "ENSINO", links: [
     { label: "Minhas turmas", href: "/classes", icon: "▦", active: "classes" },
-    { label: "Preparar aula", href: "/lesson/new", icon: "◷", active: "lesson" }
+    { label: "Preparar aula", href: "/lesson/new", icon: "◷", active: "lesson" },
+    { label: "Lançar notas", href: "/professor/notas", icon: "▤", active: "teacher-grades" },
+    { label: "Atividades", href: "/professor/atividades", icon: "▣", active: "teacher-activities" }
   ] }
 ];
 const coordinationLinks: Array<{ group: string; links: MenuLink[] }> = [
@@ -28,7 +32,9 @@ const coordinationLinks: Array<{ group: string; links: MenuLink[] }> = [
   { group: "GESTÃO ESCOLAR", links: [
     { label: "Acompanhamento", href: "/coordination", icon: "▥", active: "coordination" },
     { label: "Turmas", href: "/coordination/classes", icon: "▦", active: "school-classes" },
+    { label: "Ambientes", href: "/coordination/environments", icon: "⌂", active: "environments" },
     { label: "Pessoas", href: "/coordination/people", icon: "♙", active: "people" },
+    { label: "Aprovação de notas", href: "/coordenador/aprovacoes", icon: "✓", active: "grade-approvals" },
     { label: "Alertas e protocolos", href: "/coordination/protocols", icon: "♧", active: "school-protocols" }
   ] }
 ];

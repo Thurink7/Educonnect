@@ -35,11 +35,19 @@ O primeiro perfil `coordination` é criado no Console Firebase. Nunca aceite `ro
 | `schoolId`, `schemaVersion` | string, number | Identidade do colégio e versão do documento. |
 | `name`, `shift` | string | Nome e turno. |
 | `subjects` | string[] | Disciplinas habilitadas para a turma. |
-| `location` | map | Obrigatório para turma nova: `latitude`, `longitude`, `radiusMeters` (20 a 1000). É a geocerca da sala. |
+| `location` | map | Opcional, mantido para compatibilidade com turmas antigas. A geocerca de novas aulas fica em `lessons.location`. |
+| `status` | string | `active` ou `archived`. Ausência significa turma ativa para compatibilidade. Excluir arquiva a turma para preservar o histórico. |
+| `archivedAt`, `archivedBy` | Timestamp, string | Auditoria de arquivamento. Turmas arquivadas saem das listas e não recebem novas aulas ou vínculos. |
 | `schedule` | map[] | `weekday` (0–6), `startsAt`, `endsAt`, `subject`, `teacherId?`. Preparado para horários; chamadas atuais iniciam no momento da ação do professor. |
 | `createdBy`, `createdAt`, `updatedAt` | string, Timestamp | Auditoria. |
 
 `teacherIds` e `studentIds` são aceitos apenas como campos antigos durante a migração; documentos novos usam `class_memberships`.
+
+### `environments/{environmentId}`
+
+Sala ou espaço escolar predefinido pela Coordenação. Um ambiente pertence a uma turma e pode ser escolhido pelo professor ao abrir uma aula, como alternativa à captura da localização atual.
+
+Campos: `schoolId`, `schemaVersion`, `name`, `classId`, `schedule[]` (`weekday` 0–6, `startsAt`, `endsAt`), `location` (`latitude`, `longitude`, `radiusMeters` entre 20 e 1000), `createdBy`, `createdAt`, `updatedAt`. Se a turma for arquivada, o ambiente também recebe `archivedAt` e deixa de ser oferecido para novas chamadas.
 
 ### `class_memberships/{classId}_{uid}`
 
@@ -52,6 +60,8 @@ Campos: `classId`, `userId`, `schoolId`, `role` (`teacher` ou `student`), `schem
 Uma chamada por turma e disciplina. Apenas uma chamada ativa por turma.
 
 Campos: `schoolId`, `schemaVersion`, `classId`, `subject`, `teacherId`, `mode` (`in-person` ou `remote`), `status` (`active` ou `closed`), `startsAt`, `endsAt?`, `presentCount`, `qrNonce`, `qrExpiresAt`, `createdAt`, `updatedAt`, `closedAt?`.
+
+Para aulas presenciais, a API grava também `location` (`latitude`, `longitude`, `radiusMeters`) e `locationMode` (`current` ou `environment`); quando vem de uma sala cadastrada, grava `environmentId`. Assim, a geocerca pertence à aula e não fica imposta na turma. O coordenador pode atualizar os dados de professores e estudantes, os vínculos, e remover contas; os registros históricos de frequência permanecem.
 
 O QR contém apenas um token HMAC com `lessonId`, `classId`, `schoolId`, nonce aleatório e validade de dez segundos. A tela renova o código pouco antes do vencimento. Um código já exibido continua aceito até o vencimento contido em sua assinatura, mesmo após a emissão do próximo código; o token também precisa corresponder a uma aula ativa e à turma indicada. `qrNonce` e `qrExpiresAt` são estado do código mais recente, não histórico de tokens.
 
@@ -69,27 +79,47 @@ Histórico imutável das alterações manuais: `schoolId`, `lessonId`, `classId`
 
 ### `protocols/{protocolId}`
 
-Orientação pedagógica por estudante: `schoolId`, `schemaVersion`, `classId`, `studentId`, `studentName`, `className`, `title`, `description`, `dueAt?`, `status` (`open` ou `resolved`), `createdBy`, `createdAt`, `updatedAt`, `resolvedAt?`.
+Orientação pedagógica por estudante: `schoolId`, `schemaVersion`, `classId`, `studentId` (UID do documento `users/{uid}` e da conta Firebase Authentication), `studentName` (cópia para histórico), `className` (cópia para histórico), `title`, `description`, `dueAt?`, `status` (`open` ou `resolved`), `createdBy`, `createdAt`, `updatedAt`, `resolvedAt?`. Consultas e resolução autorizam pelo `studentId`, nunca pelo nome.
 
 O estudante consulta e conclui seus próprios protocolos. A gravação não envia e-mail, SMS ou notificação push.
+
+### `activities/{activityId}`
+
+Atividade da agenda escolar vinculada a `schoolId`, `classId`, `className`, `subject`, `teacherId` e `teacherName`. Contém `title`, `description`, `dueAt` (Timestamp), `status` (`active` ou `archived`) e datas de criação/atualização. Professores só publicam e editam atividades em turmas e disciplinas às quais estão vinculados; estudantes consultam apenas atividades das próprias turmas.
+
+### `activity_completions/{activityId}_{studentUid}`
+
+Registro da entrega/conclusão pelo aluno, com `activityId`, `schoolId`, `classId`, `studentId` e `submittedAt`. O status pendente/atrasado/entregue é calculado a partir da data limite e deste registro.
+
+### `grade_submissions/{submissionId}`
+
+Lote de notas de uma turma, disciplina e professor, com `academicYear`, `term`, `gradeLabels`, `entries` (UID, nome e matrícula do aluno, notas parciais e média) e status `draft`, `pending`, `approved` ou `rejected`. O professor edita somente rascunhos e devoluções; a Coordenação revisa somente lotes pendentes. A devolução exige feedback.
+
+### `student_grades/{submissionId}_{studentUid}`
+
+Projeção das notas publicadas para o boletim, com UID do estudante, turma, disciplina, professor, período, notas, média e `approvedAt`. Somente a aprovação do lote cria/atualiza esses documentos; a API do boletim consulta pelo UID do estudante autenticado.
 
 ## Relações
 
 ```text
-users ──< class_memberships >── classes ──< lessons ──< attendance >── users
-                                           │                 │
-                                           └── attendance_events
-classes ──< protocols >── users
+users ──< class_memberships >── classes
+                               ├──< environments
+                               ├──< lessons ──< attendance >── users
+                               │                  └── attendance_events
+                               ├──< protocols >── users
+                               ├──< activities ──< activity_completions >── users
+                               └──< grade_submissions ──< student_grades >── users
 ```
 
 `attendance` é o livro de frequência. Os percentuais da interface são calculados sobre aulas lançadas: presença ÷ (presença + falta); `justified` fica fora do denominador. O painel da Coordenação sinaliza abaixo de 75% depois de pelo menos cinco registros em 30 dias.
 
 ## Geolocalização
 
-1. A Coordenação cadastra a localização da sala e um raio adequado ao ambiente físico.
-2. O estudante permite localização no dispositivo e lê o QR presencial.
-3. A API valida a assinatura/expiração do QR, o vínculo com turma, a chamada ativa e a distância até a geocerca.
-4. Se a localização não está configurada, está imprecisa ou está fora do raio, a API recusa a chamada e não cria um registro.
+1. Ao preparar uma aula, o professor captura a localização atual ou seleciona um ambiente predefinido da turma.
+2. A API grava essa geocerca na aula; turmas antigas ainda podem fornecer `location` como fallback.
+3. O estudante permite localização no dispositivo e lê o QR presencial.
+4. A API valida a assinatura/expiração do QR, o vínculo com turma, a chamada ativa e a distância até a geocerca da aula.
+5. Se a localização da aula não foi definida, está imprecisa ou está fora do raio, a API recusa a chamada e não cria um registro.
 
 O valor de raio é uma escolha operacional: GPS de celulares pode ser menos preciso em áreas internas. A equipe deve ajustar o raio e validar em sala antes de usar a frequência como registro oficial.
 

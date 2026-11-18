@@ -22,7 +22,7 @@ dashboardRouter.get("/summary", async (req, res, next) => {
       ? (await (profile.schoolId === "default" ? db.collection("classes").limit(100).get() : db.collection("classes").where("schoolId", "==", profile.schoolId).limit(100).get())).docs.map((doc) => doc.id)
       : await getUserClassIds(profile);
     const classDocs = classIds.length ? await db.getAll(...classIds.map((id) => db.collection("classes").doc(id))) : [];
-    const classes = classDocs.filter((doc) => doc.exists && (doc.data()?.schoolId ?? "default") === profile.schoolId).map((doc) => serializeClass(doc.id, doc.data()!));
+    const classes = classDocs.filter((doc) => doc.exists && (doc.data()?.schoolId ?? "default") === profile.schoolId && doc.data()?.status !== "archived").map((doc) => serializeClass(doc.id, doc.data()!));
     const [members, lessons, attendance] = await Promise.all([
       profile.role === "coordination" ? db.collection("class_memberships").where("schoolId", "==", profile.schoolId).get() : Promise.resolve(null),
       db.collection("lessons").where("schoolId", "==", profile.schoolId).where("status", "==", "active").limit(100).get(),

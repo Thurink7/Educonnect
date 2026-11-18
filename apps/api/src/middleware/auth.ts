@@ -11,7 +11,7 @@ export async function requireUser(req: Request, res: Response, next: NextFunctio
     if (!snapshot.exists) return res.status(403).json({ error: "Perfil Educonnect não cadastrado." });
     const data = snapshot.data()!;
     if (!["coordination", "teacher", "student"].includes(data.role)) return res.status(403).json({ error: "Perfil inválido." });
-    req.user = { uid: decoded.uid, schoolId: data.schoolId ?? "default", displayName: data.displayName ?? decoded.name ?? "", email: data.email ?? decoded.email ?? "", role: data.role as UserRole, classIds: data.classIds ?? [], registration: data.registration, guardian: data.guardian } satisfies UserProfile;
+    req.user = { uid: decoded.uid, schoolId: data.schoolId ?? "default", displayName: data.displayName ?? decoded.name ?? "", email: data.email ?? decoded.email ?? "", role: data.role as UserRole, classIds: data.classIds ?? [], teachingAssignments: data.teachingAssignments ?? [], registration: data.registration, guardian: data.guardian } satisfies UserProfile;
     next();
   } catch {
     return res.status(401).json({ error: "Sessão inválida ou expirada." });
